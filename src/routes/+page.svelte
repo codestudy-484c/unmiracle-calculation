@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onDestroy, onMount } from 'svelte';
     import * as ort from 'onnxruntime-web';
     
     ort.env.wasm.wasmPaths = '/';
@@ -9,9 +9,27 @@
         equation: string;
         fullAnswer: string;
         currentIndex: number;
+        isSkipped?: boolean;
     };
     
-    let timeLeft = $state("00:57");
+    // Timer and gamestatus
+    let gameTime = $state(60);
+    let timerInterval: ReturnType<typeof setInterval> | null = null;
+    let isGameOver = $state(false);
+
+    // score and accuracy
+    let solvedCount = $state(0);
+    let totalAttemptedCount = $state(0);
+
+    let accuracy = $derived(
+        totalAttemptedCount > 0 ? Math.round((solvedCount / totalAttemptedCount) * 100) : 100
+    );
+    
+    // formatting Timer
+    let timeLeft = $derived(
+        `${String(Math.floor(gameTime / 60)).padStart(2, '0')}:${String(gameTime % 60).padStart(2, '0')}`
+    );
+
     let currentProblem = $state<MathProblem>({ equation: "Now Loading...", fullAnswer: "0", currentIndex: 0 });
     let upcomingProblems = $state<MathProblem[]>([]);
     let previousProblem = $state<MathProblem | null>(null);
@@ -26,7 +44,35 @@
     let isDrawing = false;
     let submitTimeout: ReturnType<typeof setTimeout>;
 
-    let session: ort.InferenceSession | null = null;
+    let session = $state<ort.InferenceSession | null>(null);
+    
+    function startTimer() {
+        if (timerInterval) clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+            if (gameTime > 0) {
+                 gameTime--;
+             } else {
+                 endGame();
+             } 
+        }, 1000);
+    }
+    
+    function endGame() {
+        if (timerInterval) clearInterval(timerInterval);
+        isGameOver = true;
+        console.log("game over");
+    }
+
+    function skipProblem() {
+        if (isGameOver || !session) return;
+
+        currentProblem.isSkipped = true;
+        previousProblem = currentProblem;
+        totalAttemptedCount++;
+        currentProblem = upcomingProblems.shift() || generateRandomProblem();
+        upcomingProblems.push(generateRandomProblem());
+        clearCanvas();
+    }
 
     function generateRandomProblem(): MathProblem {
         const ops = ['+', '-', '*', '/'];
@@ -97,6 +143,7 @@
             console.log("ONNX model load successfully");
 
             setupInitialProblems();
+            startTimer();
         } catch (e) {
             console.error("ONNX model load failed:", e);
         }
@@ -124,8 +171,31 @@
     }
 
     onMount(async () => {
+
+        if (window.innerWidth < 768) {
+            let viewport = document.querySelector('meta[name="viewport"]');
+            if (viewport) {
+                viewport.setAttribute(
+                    'content',
+                    'width=device-width, initial-scale=0.75 minimum-scale=0.65 maximum-scale=0.75, user-scalable=no, viewport=fit-cover'
+                )
+            }
+        } else {
+            let viewport = document.querySelector('meta[name="viewport"]');
+            if (viewport) {
+                viewport.setAttribute(
+                    'content',
+                    'width=device-width, initial-scale=1, minimum-scale=0.75 user-scalable=no, viewport=fit-cover'
+                )
+            }
+        }
+
         initCanvas();
         await loadModel();
+    });
+
+    onDestroy(() => {
+        if (timerInterval) clearInterval(timerInterval);
     });
 
     // start drawing
@@ -259,32 +329,35 @@
                 }
             }
 
+            if (isGameOver) return;
+
             let targetDigit = parseInt(currentProblem.fullAnswer[currentProblem.currentIndex], 10);
-            console.log(`Think: [ ${maxIndex} ] | Answer: ${targetDigit}`);
             
             if (maxIndex === targetDigit) {
-                console.log("Correct");
+                // Correct
                 currentProblem.currentIndex++;
 
                 if (currentProblem.currentIndex >= currentProblem.fullAnswer.length) {
-                   console.log("All Correct");
-
+                    // All Correct
+                    
+                    solvedCount++;
+                    totalAttemptedCount++;
+                    
+                    currentProblem.isSkipped = false;
                     previousProblem = currentProblem;
 
-                   currentProblem = upcomingProblems.shift() || generateRandomProblem();
-                   upcomingProblems.push(generateRandomProblem());
+                    currentProblem = upcomingProblems.shift() || generateRandomProblem();
+                    upcomingProblems.push(generateRandomProblem());
                 }
                 clearCanvas();
             } else {
-                console.log("Incorrect. Retry.");
+                // Incorrect
                 clearCanvas();
             }
 
         } catch (error) {
             console.error("An error occured:", error);
         }
-        
-        
     }
 
 </script>
@@ -296,9 +369,13 @@
     <!--Left/Top area: timer, problems feed-->
 
     <section class="w-full landscape:w-1/2 flex flex-col border-b landscape:border-b-0 landscape:border-r border-gray-300 p-4 relative">
-        <!--timer-->
-        <div class="text-center text-3xl mb-8 mt-4 tracking-widest">
-            {timeLeft}    
+        <!--timer and stats dashboard-->
+        <div class="flex flex-col items-center text-center mb-8 mt-4 tracking-wide gap-2">
+            <div class="text-3xl"> {timeLeft} </div>
+            <div class="flex gap-6 text-sm text-gray-500">
+                <div>SOLVED: <span class="text-gray-300 font-bold">{solvedCount}</span></div>
+                <div>ACC: <span class="text-gray-300 font-bold">{accuracy}%</span></div>
+            </div>
         </div>
         
         <!--List of Problems aligned in center-->
@@ -306,7 +383,10 @@
             <!-- Previous problem -->
             {#if previousProblem}
                 <div class="text-gray-400 w-full max-w-sm text-center opacity-50">
-                    {previousProblem.equation} <span class="text-green-400 opacity-80 font-bold">{previousProblem.fullAnswer}</span>
+                    {previousProblem.equation} 
+                    <span class={previousProblem.isSkipped ? "text-white font-bold underline decoration-dotted" : "text-green-400 opacity-80 font-bold"}>
+                    {previousProblem.fullAnswer}
+                    </span>
                 </div>
             {/if}
 
@@ -342,15 +422,41 @@
         <!--Action Button-->
         <div class="flex gap-8 mt-8 text-xl">
             <!-- BS -->
-            <button onclick={clearCanvas} class="border border-gray-300 px-6 py-2 hover:bg-gray-300 hover:text-black transition-colors focus:outline-none">
+            <button
+                onclick={clearCanvas}
+                disabled={isGameOver}
+                class="border border-gray-300 px-6 py-2 hover:bg-gray-300 hover:text-black transition-colors focus:outline-none"
+                >
                 [ BS ]
             </button>
 
             <!-- skip -->
-            <button class="border border-gray-300 px-6 py-2 hover:bg-gray-300 hover:text-black transition-colors focus:outline-none">
+            <button
+                onclick={skipProblem}
+                disabled={isGameOver || !session}
+                class="border border-gray-300 px-6 py-2 hover:bg-gray-300 hover:text-black transition-colors focus:outline-none"
+                >
                 [ SKIP ]
             </button>
-
         </div>
     </section>
+
+    <!-- Game Over Overlay -->
+    {#if isGameOver}
+        <div class="absolute inset-0 z-50 bg-black/90 flex flex-col items-center justify-center font-mono backdrop-blur-sm px-4 select-none animate-fade-in">
+            <div class="relative bg-black border-4 border-double border-gray-400 w-full max-w-sm p-6 shadow-[12px_12px_0px_rgba(50,50,50,1)]">
+                <h1 class="text-white text-5xl font-bold mb-8 tracking-widest border-b border-gray-500 pb-4">TIME OVER</h1>
+                <div class="text-gray-400 space-y-4 text-center text-2xl mb-12 tracking-wider">
+                    <p> SOLVED : <span class="text-green-400 font-bold">{solvedCount}</span></p>
+                    <p>ACCRACY : <span class="text-white font-bold">{accuracy}%</span></p>
+                </div>
+                <button
+                    onclick={() => location.reload()}
+                    class="border border-gray-300 text-gray-300 px-8 py-3 text-xl hover:bg-gray-300 hover:text-black transition-colors focus:outline-none tracking-widest"
+                >
+                    [ RETRY ]
+                </button>
+            </div>
+        </div>
+    {/if}
 </main>
