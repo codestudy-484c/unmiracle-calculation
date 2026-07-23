@@ -375,7 +375,7 @@
         <div class="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center font-mono p-4">
             <div class="text-center mb-10">
                 <h1 class="text-white text-4xl md:text-5xl font-bold tracking-widest mb-2 leading-tight">UNMIRACLE<br>CACULATION</h1>
-                <p class="text-gray-500 text-xs tracking-[0.3em] mt-2">Made by Scope.H<br>Handwriting recongnition with ML</p>
+                <p class="text-gray-500 text-xs tracking-[0.3em] mt-2">Made by Scope.H<br>Handwriting recognition with ML</p>
                 <p class="text-gray-500 text-xs tracking-[0.3em] mt-2">Includes AI-assisted code<br>(Google Gemini)</p>
             </div>
 
