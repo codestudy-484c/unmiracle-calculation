@@ -15,7 +15,8 @@
     // Timer and gamestatus
     let gameTime = $state(60);
     let timerInterval: ReturnType<typeof setInterval> | null = null;
-    let isGameOver = $state(false);
+    let screenMode = $state<'SPLASH' | 'PLAY' | 'GAMEOVER'>('SPLASH');
+    let isModelLoaded = $state(false);
 
     // score and accuracy
     let solvedCount = $state(0);
@@ -57,14 +58,20 @@
         }, 1000);
     }
     
+    function startGame() {
+        setupInitialProblems();
+        startTimer();
+        screenMode = 'PLAY';
+    }
+
     function endGame() {
         if (timerInterval) clearInterval(timerInterval);
-        isGameOver = true;
+        screenMode = 'GAMEOVER';
         console.log("game over");
     }
 
     function skipProblem() {
-        if (isGameOver || !session) return;
+        if (screenMode !== 'PLAY' || !session) return;
 
         currentProblem.isSkipped = true;
         previousProblem = currentProblem;
@@ -132,8 +139,6 @@
 
     async function loadModel() {
         try {
-            console.log("Model and WASM runtime loading...");
-
             ort.env.wasm.wasmPaths = '/';
             ort.env.wasm.numThreads = 1
 
@@ -141,9 +146,8 @@
                 executionProviders: ['wasm']
             });
             console.log("ONNX model load successfully");
-
-            setupInitialProblems();
-            startTimer();
+            
+            isModelLoaded = true;
         } catch (e) {
             console.error("ONNX model load failed:", e);
         }
@@ -329,7 +333,7 @@
                 }
             }
 
-            if (isGameOver) return;
+            if (screenMode !== 'PLAY') return;
 
             let targetDigit = parseInt(currentProblem.fullAnswer[currentProblem.currentIndex], 10);
             
@@ -365,6 +369,49 @@
 <svelte:window onresize={initCanvas} />
 
 <main class="select-none min-h-screen bg-black text-gray-300 font-mono flex flex-col landscape:flex-row selection:bg-gray-300 selection:text-black pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+    
+    <!-- SPLASH SCREEN -->
+    {#if screenMode === 'SPLASH'}
+        <div class="absolute inset-0 z-50 bg-black flex flex-col items-center justify-center font-mono p-4">
+            <div class="text-center mb-10">
+                <h1 class="text-white text-4xl md:text-5xl font-bold tracking-widest mb-2 leading-tight">UNMIRACLE<br>CACULATION</h1>
+                <p class="text-gray-500 text-xs tracking-[0.3em] mt-2">Made by Scope.H<br>Handwriting recongnition with ML</p>
+                <p class="text-gray-500 text-xs tracking-[0.3em] mt-2">Includes AI-assisted code<br>(Google Gemini)</p>
+            </div>
+
+            <div class="flex flex-col gap-4 text-sm text-gray-300 mb-16 border-t border-dashed border-gray-600 pt-6">
+                <div class="flex justify-between">
+                    <span> INITIALIZING SYSTEM...</span>
+                    <span class="text-green-400">[ OK ]</span>
+                </div>
+                <div class="flex justify-between">
+                    <span> LOADING ONNX ENGINE...</span>
+                    <span class="text-green-400">[ OK ]</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span> MOUNTING AI CORTEX...</span>
+                    {#if !isModelLoaded}
+                        <span class="text-yellow-400 animate-pulse">[ LOADING ]</span>
+                    {:else}
+                        <span class="text-green-400">[ OK ]</span>
+                    {/if}
+                </div>
+            </div>
+
+            <button
+                onclick={startGame}
+                disabled={!isModelLoaded}
+                class="w-full border-2 border-gray-400 py-4 text-xl tracking-widest font-bold transition-all disabled:opacity-30 disabled:text-gray-600 {!isModelLoaded ? '' : 'bg-gray-200 text-black hover:bg-white hover:shadow-[4px_4px_0px_rgb(100,100,1)] active:translate-y-1 active:shadow-none'}"
+            >
+                {#if !isModelLoaded}
+                    PLEASE WAIT
+                {:else}
+                    START
+                {/if}
+            </button>
+        </div>
+    {/if}
+
 
     <!--Left/Top area: timer, problems feed-->
 
@@ -421,19 +468,19 @@
 
         <!--Action Button-->
         <div class="flex gap-8 mt-8 text-xl">
-            <!-- BS -->
+            <!-- FORCE QUIT -->
             <button
-                onclick={clearCanvas}
-                disabled={isGameOver}
+                onclick={endGame}
+                disabled={screenMode !== 'PLAY'}
                 class="border border-gray-300 px-6 py-2 hover:bg-gray-300 hover:text-black transition-colors focus:outline-none"
                 >
-                [ BS ]
+                [ QUIT ]
             </button>
 
             <!-- skip -->
             <button
                 onclick={skipProblem}
-                disabled={isGameOver || !session}
+                disabled={screenMode !== 'PLAY' || !session}
                 class="border border-gray-300 px-6 py-2 hover:bg-gray-300 hover:text-black transition-colors focus:outline-none"
                 >
                 [ SKIP ]
@@ -442,13 +489,13 @@
     </section>
 
     <!-- Game Over Overlay -->
-    {#if isGameOver}
+    {#if screenMode === 'GAMEOVER'}
         <div class="absolute inset-0 z-50 bg-black/90 flex flex-col items-center justify-center font-mono backdrop-blur-sm px-4 select-none animate-fade-in">
-            <div class="relative bg-black border-4 border-double border-gray-400 w-full max-w-sm p-6 shadow-[12px_12px_0px_rgba(50,50,50,1)]">
-                <h1 class="text-white text-5xl font-bold mb-8 tracking-widest border-b border-gray-500 pb-4">TIME OVER</h1>
+            <div class="relative flex flex-col items-center bg-black border-4 border-double border-gray-400 w-full max-w-sm p-6 shadow-[12px_12px_0px_rgba(50,50,50,1)]">
+                <h1 class="w-full text-center text-white text-5xl font-bold mb-8 tracking-widest border-b border-gray-500 pb-4">TIME OVER</h1>
                 <div class="text-gray-400 space-y-4 text-center text-2xl mb-12 tracking-wider">
-                    <p> SOLVED : <span class="text-green-400 font-bold">{solvedCount}</span></p>
-                    <p>ACCRACY : <span class="text-white font-bold">{accuracy}%</span></p>
+                    <p>SOLVED : <span class="text-green-400 font-bold">{solvedCount}</span></p>
+                    <p>ACCURACY : <span class="text-white font-bold">{accuracy}%</span></p>
                 </div>
                 <button
                     onclick={() => location.reload()}
